@@ -1,0 +1,11 @@
+{
+  "model": "meta-llama/llama-3.1-8b-instruct",
+  "parameter_size": "8B parameters",
+  "framework": "Python standard library + OpenRouter Chat Completions API",
+  "runtime": {
+    "python": "3.11.9",
+    "platform": "Windows-10-10.0.22621-SP0"
+  },
+  "run_completed_at_utc": "2026-08-05T09:27:19.137567+00:00",
+  "cases_processed": 50
+}

@@ -1,121 +1,102 @@
-# Member Role Report — Day 9: Multi Agent A2A
+# Member Role Report — Day 9: Multi-Agent A2A
 
-> Mỗi thành viên trong nhóm tự hoàn thành mẫu này để báo cáo đúng vai trò, phần việc và mức hiểu của mình. Không sao chép nguyên báo cáo chung hoặc báo cáo của thành viên khác. Thay nội dung trong dấu `[ ]` và xóa các dòng hướng dẫn không cần thiết trước khi nộp.
+> Điền họ tên, MSSV và lớp trước khi nộp. Các nội dung kỹ thuật dưới đây phản
+> ánh pipeline hiện có trong repository.
 
 ## 1. Thông tin cá nhân
 
-| Thông tin       | Nội dung     |
-| --------------- | ------------ |
-| Họ và tên       | [Họ và tên]  |
-| MSSV            | [MSSV]       |
-| Khóa/Lớp        | [K4]         |
-| Vai trò chính   | [Vai trò]    |
-| Ngày hoàn thành | [YYYY-MM-DD] |
+| Thông tin | Nội dung |
+| --- | --- |
+| Họ và tên | [Họ và tên] |
+| MSSV | [MSSV] |
+| Khóa/Lớp | K4 |
+| Vai trò chính | Thiết kế và tích hợp pipeline multi-agent |
+| Ngày hoàn thành | 2026-08-05 |
 
 ## 2. Vai trò và phạm vi công việc
 
-### Phần việc sở hữu
-
-| Module/deliverable | File/hàm phụ trách | Input nhận vào | Output bàn giao   | Trạng thái                            |
-| ------------------ | ------------------ | -------------- | ----------------- | ------------------------------------- |
-| [Phần việc]        | [File/hàm]         | [Input]        | [Output/artifact] | [Hoàn thành/Một phần/Chưa hoàn thành] |
-| [Phần việc]        | [File/hàm]         | [Input]        | [Output/artifact] | [Hoàn thành/Một phần/Chưa hoàn thành] |
-
-Chỉ nhận ownership cho phần bạn trực tiếp thực hiện. Liên hệ rõ phần việc của bạn với đầu vào, đầu ra và các thành viên phụ thuộc vào phần đó.
-
-### Việc hỗ trợ ngoài phạm vi chính
-
-| Hoạt động                 | Thành viên/module được hỗ trợ | Kết quả                 |
-| ------------------------- | ----------------------------- | ----------------------- |
-| [Debug/tích hợp/tài liệu] | [Tên hoặc module]             | [Kết quả và bằng chứng] |
+| Module/deliverable | File phụ trách | Input | Output | Trạng thái |
+| --- | --- | --- | --- | --- |
+| Điều phối và xuất kết quả | `src/main.py` | 50 JSON case, các handoff | 50 JSON theo schema | Hoàn thành |
+| Agent nghiệp vụ | `src/agents.py`, `src/policy.py` | Olist CSV | Evidence, quyết định policy | Hoàn thành |
+| Kiểm tra và audit | `src/verifier.py`, `logging/` | Kết quả đã tổng hợp | Validation, trace, metadata | Hoàn thành |
 
 ## 3. Kết quả theo vai trò
 
-| Nhiệm vụ đã thực hiện | File/hàm/artifact liên quan | Kết quả bàn giao          | Cách xác minh   |
-| --------------------- | --------------------------- | ------------------------- | --------------- |
-| [Mô tả cụ thể]        | [Đường dẫn file]            | [Artifact/metrics/report] | [Lệnh/artifact] |
-| [Mô tả cụ thể]        | [Đường dẫn file]            | [Artifact/metrics/report] | [Lệnh/artifact] |
+Pipeline xử lý toàn bộ 50 case từ `input/` và tạo kết quả trong `output/`.
+Lần chạy gần nhất sinh 50 dòng trace, mỗi dòng thể hiện chuỗi handoff:
+CustomerAgent → OrderProductAgent → PaymentAgent → DeliveryAgent → PolicyAgent
+→ VerifierAgent.
 
-Nêu một output cụ thể mà phần việc của bạn tạo ra hoặc giúp xác minh:
+Xác minh:
 
-[Mô tả artifact, metric, report hoặc kết quả tích hợp.]
+```powershell
+.\.venv\Scripts\python.exe -m src.main
+```
 
-## 4. Giải thích phần kỹ thuật đã thực hiện
+Kết quả mong đợi: có 50 file `EC_001.json` đến `EC_050.json`, 50 dòng trong
+`logging/trace.jsonl`, và `cases_processed: 50` trong `logging/metadata.json`.
 
-### Vấn đề cần giải quyết
+## 4. Giải thích kỹ thuật
 
-[Phần của bạn giải quyết vấn đề gì trong pipeline?]
+### Vấn đề giải quyết
+
+Mỗi khiếu nại cần kết hợp nhiều bảng Olist thay vì suy luận chỉ từ lời nhắn
+khách hàng. Pipeline xác định trách nhiệm, hoàn tiền và bằng chứng có thể dựng
+lại từ CSV.
 
 ### Cách triển khai
 
-[Mô tả thuật toán, quy tắc dữ liệu, orchestration hoặc quyết định chính. Không chỉ chép lại tên hàm.]
+`OlistRepository` đọc và lập chỉ mục các CSV theo các khóa join. Các agent
+domain chỉ trả về dữ kiện của domain mình. `PolicyAgent` áp dụng thứ tự ưu tiên
+`EC_POLICY_V2`; mỗi specialist đồng thời gọi OpenRouter bằng Llama 3.1 8B và
+handoff JSON review sang PolicyAgent. `VerifierAgent` kiểm tra giới hạn mảng,
+confidence, prefix evidence và sự nhất quán giữa refund với case status trước khi ghi file.
 
-### Input, output và contract
+| Thành phần | Mô tả |
+| --- | --- |
+| Input | Một `EC_xxx.json` chứa `claimed_order_id` |
+| Output | Một JSON đúng output schema của README |
+| Phụ thuộc | 9 CSV Olist trong `data/` |
+| Bên dùng output | `output/` để nén nộp; `logging/` để audit |
+| Điều kiện lỗi | Order không tồn tại, schema thiếu trường, output vượt giới hạn hoặc evidence sai prefix |
 
-| Thành phần              | Mô tả                                  |
-| ----------------------- | -------------------------------------- |
-| Input                   | [Schema, artifact hoặc tham số]        |
-| Output                  | [Schema, artifact hoặc giá trị trả về] |
-| Module phụ thuộc        | [Module/file liên quan]                |
-| Module sử dụng output   | [Module/file liên quan]                |
-| Điều kiện lỗi cần xử lý | [Trường hợp thực tế]                   |
+## 5. Quyết định kỹ thuật quan trọng
 
-### Cách xác minh
+- **Bối cảnh:** cần phân tích có thể kiểm chứng cho tất cả case.
+- **Phương án cân nhắc:** dùng LLM để suy luận tự do; hoặc dùng agent chuyên
+  biệt áp dụng quy tắc deterministic trên CSV.
+- **Phương án chọn:** agent deterministic theo `EC_POLICY_V2`.
+- **Lý do:** công thức hoàn tiền, timestamp, evidence ID và thứ tự ưu tiên đều
+  đã được xác định trong đề; cách này tránh tạo ra sự kiện không có trong dữ liệu.
+- **Bằng chứng:** mỗi output có evidence ID, đồng thời trace ghi nhận chuỗi
+  handoff và verifier hoàn tất trước khi file được ghi.
 
-```bash
-[Ghi lệnh thực tế đã chạy]
-```
+## 6. Lỗi hoặc blocker đã xử lý
 
-- **Kết quả mong đợi:** [Mô tả.]
-- **Kết quả thực tế:** [Mô tả.]
-- **Artifact/log:** [Đường dẫn; không chứa secret.]
+- **Triệu chứng:** đọc bảng `product_category_name_translation.csv` gây lỗi
+  không tìm thấy cột `product_category_name`.
+- **Nguyên nhân gốc:** file có UTF-8 BOM ở header.
+- **Cách xử lý:** CSV loader sử dụng encoding `utf-8-sig`, tương thích cả UTF-8
+  thường lẫn UTF-8 có BOM.
+- **Xác minh:** chạy `python -m src.main` thành công và sinh đủ 50 output.
 
-## 5. Một quyết định kỹ thuật quan trọng
+## 7. Luồng end-to-end
 
-- **Bối cảnh:** [Vấn đề hoặc lựa chọn cần quyết định.]
-- **Các phương án đã cân nhắc:** [Ít nhất hai phương án.]
-- **Phương án đã chọn:** [Lựa chọn.]
-- **Lý do:** [Trade-off về correctness, data quality, reproducibility, cost hoặc độ phức tạp.]
-- **Bằng chứng quyết định phù hợp:** [Metric, artifact hoặc kết quả thử nghiệm.]
+1. Coordinator đọc case và xác nhận `claimed_order_id` trong `orders`.
+2. Customer, order/product, payment và delivery agent tra cứu các bảng liên
+   quan, sau đó handoff facts có cấu trúc.
+3. PolicyAgent xác định primary issue theo ưu tiên, rồi thêm secondary issues,
+   bên chịu trách nhiệm, refund và actions.
+4. VerifierAgent chặn output không hợp lệ; kết quả hợp lệ được ghi vào
+   `output/`, trace mới nhất thay thế trace cũ và metadata ghi runtime.
 
-## 6. Một lỗi hoặc blocker đã xử lý
+## 8. Cam kết
 
-- **Triệu chứng/lỗi nguyên văn:** [Che toàn bộ secret trước khi ghi.]
-- **Lệnh hoặc bước tái hiện:** [Lệnh/bước.]
-- **Nguyên nhân gốc:** [Root cause, không chỉ mô tả triệu chứng.]
-- **Cách xử lý:** [Thay đổi cụ thể.]
-- **Cách xác minh sau khi sửa:** [Lệnh và kết quả.]
-- **Điều học được:** [Bài học kỹ thuật.]
-
-Nếu chưa xử lý xong:
-
-- **Phạm vi bị ảnh hưởng:** [Module/artifact.]
-- **Những gì đã loại trừ:** [Các giả thuyết đã kiểm tra.]
-- **Bước tiếp theo:** [Hành động có thể kiểm chứng.]
-
-## 7. Hiểu biết về luồng end-to-end
-
-Giải thích ngắn gọn bằng lời của bạn:
-
-1. Dữ liệu đi từ Crossref đến vector index như thế nào?
-2. Evaluation set và ground-truth document IDs dùng để đo retrieval/answer quality ra sao?
-3. Quality checks khác freshness monitoring ở điểm nào trong bài lab?
-4. Vì sao phải dùng cùng test set cho baseline, corrupted và repaired?
-5. Repair được xem là thành công dựa trên artifact và metric nào?
-
-**Câu trả lời:**
-
-[Viết câu trả lời tại đây.]
-
-## 8. Cam kết của thành viên
-
-Đánh dấu sau khi tự kiểm tra:
-
-- [ ] Nội dung báo cáo phản ánh đúng phần việc và mức hiểu của tôi.
-- [ ] Tôi có thể giải thích luồng end-to-end, không chỉ module mình phụ trách.
-- [ ] Tôi không ghi “đã chạy thành công” cho phần chưa được kiểm chứng.
-- [ ] Báo cáo không chứa `.env`, API key, token hoặc secret.
-- [ ] Báo cáo này không phải bản sao nguyên văn của báo cáo nhóm hoặc báo cáo thành viên khác.
+- [ ] Tôi đã thay phần thông tin cá nhân ở mục 1 trước khi nộp.
+- [x] Tôi có thể giải thích luồng dữ liệu Olist từ input đến output.
+- [x] Các kết quả chạy đã được xác minh bằng lệnh trong mục 3.
+- [x] Repository không đưa API key hoặc secret vào source/log.
 
 **Họ và tên:** [Họ và tên]
 **Ngày xác nhận:** [YYYY-MM-DD]
