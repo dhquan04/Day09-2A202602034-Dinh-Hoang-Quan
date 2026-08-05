@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import sys
 
 from .agents import CustomerAgent, DeliveryAgent, OrderProductAgent, PaymentAgent
-from .policy import PolicyAgent
+from .policy import PolicyCoordinatorAgent
 from .repository import OlistRepository
 from .verifier import VerifierAgent
 from .openrouter import OpenRouterClient
@@ -24,7 +24,9 @@ def build_case(case: dict, repo: OlistRepository, api: OpenRouterClient) -> tupl
     product = OrderProductAgent().investigate(order_id, repo, api)
     payment = PaymentAgent().investigate(order_id, product["items"], repo, api)
     delivery = DeliveryAgent().investigate(order, product["items"], api)
-    policy = PolicyAgent().decide(order, product, payment, delivery, customer, api)
+    policy = PolicyCoordinatorAgent().decide(
+        order, product, payment, delivery, customer, api
+    )
     item_ids = [f"{order_id}:{item['order_item_id']}" for item in product["items"]][:5]
     payment_ids = [f"{order_id}:{row['payment_sequential']}" for row in payment["payments"]][:5]
     evidence = [f"order:{order_id}"] + [f"item:{value}" for value in item_ids] + [f"payment:{value}" for value in payment_ids]
@@ -37,8 +39,22 @@ def build_case(case: dict, repo: OlistRepository, api: OpenRouterClient) -> tupl
             "payment_reconciliation": {"currency": "BRL", **{key: payment[key] for key in ("item_total_brl", "freight_total_brl", "expected_total_brl", "payment_total_brl", "difference_brl", "reconciled")}, "payment_types": list(dict.fromkeys(row["payment_type"] for row in payment["payments"]))},
             "root_cause_analysis": {"ranked_causes": [{"cause_code": policy["cause"], "rank": 1}], "responsible_parties": policy["responsible_parties"]},
             "evidence_ids": evidence[:20], "financial_resolution": {"currency": "BRL", "recommended_refund_brl": policy["recommended_refund_brl"]}, "resolution_actions": policy["actions"]}
-    VerifierAgent().verify(result)
-    api_reviews = {name: bool(value.get("api_handoff", {}).get("verified")) for name, value in (("customer", customer), ("product", product), ("payment", payment), ("delivery", delivery), ("policy", policy))}
+    verifier = VerifierAgent()
+    verifier.verify(result)
+    verifier.verify_against_source_data(result, case, repo)
+    api_reviews = {
+        name: bool(value.get("api_handoff", {}).get("verified"))
+        for name, value in (
+            ("CustomerAgent", customer),
+            ("OrderProductAgent", product),
+            ("PaymentAgent", payment),
+            ("DeliveryAgent", delivery),
+        )
+    }
+    api_reviews.update({
+        name: bool(review["verified"])
+        for name, review in policy["issue_agent_reviews"].items()
+    })
     return result, api_reviews
 
 
@@ -52,11 +68,17 @@ def main() -> None:
         case = json.loads(input_file.read_text(encoding="utf-8"))
         result, api_reviews = build_case(case, repo, api)
         (output_dir / input_file.name).write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        issue_handoffs = [
+            name for name in api_reviews if name.endswith("IssueAgent")
+        ]
         trace_lines.append(json.dumps({
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
             "case_id": case["case_id"],
             "claimed_order_id": case["customer_request"]["claimed_order_id"],
-            "handoff": ["CustomerAgent", "OrderProductAgent", "PaymentAgent", "DeliveryAgent", "PolicyAgent", "VerifierAgent"],
+            "handoff": [
+                "CustomerAgent", "OrderProductAgent", "PaymentAgent", "DeliveryAgent",
+                *issue_handoffs, "PolicyCoordinatorAgent", "VerifierAgent",
+            ],
             "api_model": api.model,
             "api_reviews": api_reviews,
             "primary_issue": result["case_assessment"]["primary_issue"],

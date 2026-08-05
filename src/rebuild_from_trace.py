@@ -5,26 +5,33 @@ from __future__ import annotations
 import json
 
 from .main import ROOT, build_case
+from .openrouter import OPENROUTER_MODEL
 from .repository import OlistRepository
 
 
 class TraceReviewReplay:
-    AGENT_KEYS = {
+    LEGACY_AGENT_KEYS = {
         "CustomerAgent": "customer",
         "OrderProductAgent": "product",
         "PaymentAgent": "payment",
         "DeliveryAgent": "delivery",
-        "PolicyAgent": "policy",
     }
 
     def __init__(self, reviews: dict[str, bool]) -> None:
         self.reviews = reviews
-        self.model = "meta-llama/llama-3.1-8b-instruct"
+        self.model = OPENROUTER_MODEL
 
     def generate_json(self, agent_name: str, instruction: str, evidence: dict) -> dict:
-        result = {"verified": bool(self.reviews[self.AGENT_KEYS[agent_name]]), "summary": "replayed from latest API trace"}
-        if agent_name == "PolicyAgent":
-            result["primary_issue"] = evidence["proposed_decision"]["primary_issue"]
+        legacy_name = self.LEGACY_AGENT_KEYS.get(agent_name)
+        verified = self.reviews.get(
+            agent_name, self.reviews.get(legacy_name, True)
+        )
+        result = {
+            "verified": bool(verified),
+            "summary": "replayed from latest API trace",
+        }
+        if agent_name.endswith("IssueAgent"):
+            result["matches"] = bool(evidence["_expected_match_for_replay"])
         return result
 
 

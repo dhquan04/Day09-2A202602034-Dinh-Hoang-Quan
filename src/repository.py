@@ -20,6 +20,11 @@ class OlistRepository:
         self.items_by_order = self._index_many("olist_order_items_dataset.csv", "order_id")
         self.payments_by_order = self._index_many("olist_order_payments_dataset.csv", "order_id")
         self.orders_by_customer = self._index_many_from_rows("customer_id", self.orders.values())
+        self.orders_by_unique_customer: dict[str, list[dict[str, str]]] = defaultdict(list)
+        for order in self.orders.values():
+            customer = self.customers.get(order["customer_id"])
+            if customer:
+                self.orders_by_unique_customer[customer["customer_unique_id"]].append(order)
 
     def _read_csv(self, filename: str) -> list[dict[str, str]]:
         # utf-8-sig also accepts ordinary UTF-8 and removes a possible BOM in CSV headers.

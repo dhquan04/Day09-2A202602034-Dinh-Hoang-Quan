@@ -1,104 +1,191 @@
-# Member Role Report — Day 9: Multi-Agent A2A
-
-> Điền họ tên, MSSV và lớp trước khi nộp. Các nội dung kỹ thuật dưới đây phản
-> ánh pipeline hiện có trong repository.
+# BÁO CÁO CÁ NHÂN — DAY 09 MULTI-AGENT A2A
 
 ## 1. Thông tin cá nhân
 
 | Thông tin | Nội dung |
 | --- | --- |
-| Họ và tên | [Họ và tên] |
-| MSSV | [MSSV] |
-| Khóa/Lớp | K4 |
-| Vai trò chính | Thiết kế và tích hợp pipeline multi-agent |
-| Ngày hoàn thành | 2026-08-05 |
+| Họ và tên | Đinh Hoàng Quân |
+| MSSV | 2A202602034 |
+| Lớp | K4-E402 |
+| Vai trò | Thiết kế, triển khai và kiểm thử pipeline multi-agent |
+| Ngày hoàn thành | 05/08/2026 |
 
-## 2. Vai trò và phạm vi công việc
+## 2. Mục tiêu bài làm
 
-| Module/deliverable | File phụ trách | Input | Output | Trạng thái |
-| --- | --- | --- | --- | --- |
-| Điều phối và xuất kết quả | `src/main.py` | 50 JSON case, các handoff | 50 JSON theo schema | Hoàn thành |
-| Agent nghiệp vụ | `src/agents.py`, `src/policy.py` | Olist CSV | Evidence, quyết định policy | Hoàn thành |
-| Kiểm tra và audit | `src/verifier.py`, `logging/` | Kết quả đã tổng hợp | Validation, trace, metadata | Hoàn thành |
+Hệ thống điều tra 50 yêu cầu hỗ trợ thương mại điện tử trên dữ liệu Olist. Kết
+luận không được sao chép hoặc tin trực tiếp nội dung người dùng cung cấp. Mỗi
+case phải được truy xuất lại từ CSV, đối chiếu order, customer, item, seller,
+product, giao vận và payment trước khi áp dụng `EC_POLICY_V2`.
 
-## 3. Kết quả theo vai trò
+Kết quả của mỗi case gồm issue chính, các issue liên quan, entity bị ảnh hưởng,
+ngữ cảnh khách hàng/sản phẩm, phân tích giao vận, đối soát thanh toán, nguyên
+nhân, bằng chứng, bên chịu trách nhiệm, tiền hoàn và action xử lý.
 
-Pipeline xử lý toàn bộ 50 case từ `input/` và tạo kết quả trong `output/`.
-Lần chạy gần nhất sinh 50 dòng trace, mỗi dòng thể hiện chuỗi handoff:
-CustomerAgent → OrderProductAgent → PaymentAgent → DeliveryAgent → PolicyAgent
-→ VerifierAgent.
+## 3. Kiến trúc multi-agent
 
-Xác minh:
+Pipeline sử dụng các agent chuyên biệt và gọi API OpenRouter bằng model
+`meta-llama/llama-3.1-8b-instruct` (8B tham số, không vượt giới hạn 10B):
 
-```powershell
-.\.venv\Scripts\python.exe -m src.main
+1. `CustomerAgent`: xác minh `customer_unique_id` và các order khác của khách.
+2. `OrderProductAgent`: lấy toàn bộ item, seller, product và category liên quan.
+3. `PaymentAgent`: đối soát tất cả payment row với item và freight.
+4. `DeliveryAgent`: tính độ trễ giao hàng và độ trễ bàn giao của từng seller.
+5. `CanceledOrderIssueAgent`: chỉ kiểm tra đơn canceled đã thanh toán.
+6. `UnavailableOrderIssueAgent`: chỉ kiểm tra đơn unavailable đã thanh toán.
+7. `LateDeliverySellerIssueAgent`: chỉ kiểm tra giao trễ do seller bàn giao muộn.
+8. `LateDeliveryLogisticsIssueAgent`: chỉ kiểm tra giao trễ do logistics.
+9. `ValidSplitPaymentIssueAgent`: chỉ kiểm tra split payment đã đối soát đúng.
+10. `UnsupportedLateClaimIssueAgent`: chỉ kiểm tra claim giao trễ bị dữ liệu bác bỏ.
+11. `PolicyCoordinatorAgent`: dừng tại issue agent đầu tiên khớp theo priority,
+    sau đó tính cause, responsibility, refund và actions.
+12. `VerifierAgent`: tính lại kết quả từ CSV, từ chối dữ liệu sai hoặc không có
+   bằng chứng trước khi Coordinator ghi file.
+
+Model được sử dụng để review evidence và handoff giữa các agent. Các phép tính
+số học và luật quyết định được viết bằng hàm Python rõ ràng để tránh LLM tính
+sai, tự tạo dữ liệu hoặc thay đổi thứ tự nghiệp vụ.
+
+## 4. Các hàm tính toán
+
+Các hàm thuần trong `src/calculations.py`:
+
+- `calculate_hours_between(later, earlier)`:
+  tính chênh lệch timestamp theo giờ và làm tròn hai chữ số.
+- `calculate_payment_reconciliation(items, payments)`:
+  tính `item_total_brl`, `freight_total_brl`, `expected_total_brl`,
+  `payment_total_brl`, `difference_brl` và `reconciled`.
+- `calculate_seller_handoff_analysis(order, items)`:
+  so sánh thời điểm carrier nhận hàng với `shipping_limit_date` sớm nhất của
+  từng seller.
+- `calculate_delivery_analysis(order, items)`:
+  tổng hợp timestamp, delivery variance, seller handoff và seller bàn giao muộn.
+
+Các công thức chính:
+
+```text
+delivery_variance_hours
+  = order_delivered_customer_date - order_estimated_delivery_date
+
+handoff_variance_hours
+  = order_delivered_carrier_date - shipping_limit_date sớm nhất của seller
+
+expected_total_brl
+  = sum(order_items.price) + sum(order_items.freight_value)
+
+difference_brl
+  = sum(order_payments.payment_value) - expected_total_brl
+
+reconciled
+  = abs(difference_brl) <= 0.10 BRL
 ```
 
-Kết quả mong đợi: có 50 file `EC_001.json` đến `EC_050.json`, 50 dòng trong
-`logging/trace.jsonl`, và `cases_processed: 50` trong `logging/metadata.json`.
+Khi order không có item, tổng item và freight bằng `0.0`; expected total,
+difference và reconciled giữ `null` vì không có item ledger để đối soát. Timestamp
+không tồn tại và variance không đủ timestamp cũng giữ `null`, tránh biến dữ liệu
+không xác định thành một sự kiện có giá trị bằng zero.
 
-## 4. Giải thích kỹ thuật
+## 5. Thứ tự nghiệp vụ EC_POLICY_V2
 
-### Vấn đề giải quyết
+Hàm `classify_primary_issue()` trong `src/issue_rules.py` sử dụng first-match:
 
-Mỗi khiếu nại cần kết hợp nhiều bảng Olist thay vì suy luận chỉ từ lời nhắn
-khách hàng. Pipeline xác định trách nhiệm, hoàn tiền và bằng chứng có thể dựng
-lại từ CSV.
+1. `canceled_order_paid`
+2. `unavailable_order_paid`
+3. `late_delivery_seller`
+4. `late_delivery_logistics`
+5. `valid_split_payment`
+6. `unsupported_late_claim`
 
-### Cách triển khai
+Thứ tự này là bắt buộc. Ví dụ, một order đã bị hủy và đã thanh toán phải được
+xử lý hoàn toàn bộ payment trước khi xét giao vận hoặc split payment. Với order
+giao trễ, hệ thống phải kiểm tra seller có bàn giao sau hạn hay không trước khi
+quy trách nhiệm cho logistics. Đổi thứ tự có thể làm sai primary issue, bên chịu
+trách nhiệm và số tiền hoàn.
 
-`OlistRepository` đọc và lập chỉ mục các CSV theo các khóa join. Các agent
-domain chỉ trả về dữ kiện của domain mình. `PolicyAgent` áp dụng thứ tự ưu tiên
-`EC_POLICY_V2`; mỗi specialist đồng thời gọi OpenRouter bằng Llama 3.1 8B và
-handoff JSON review sang PolicyAgent. `VerifierAgent` kiểm tra giới hạn mảng,
-confidence, prefix evidence và sự nhất quán giữa refund với case status trước khi ghi file.
-Confidence không gán cứng; hệ thống tính từ độ đầy đủ của evidence cần thiết cho
-từng issue và kết quả xác nhận của các API agent liên quan.
+Hàm `evaluate_issue_rules()` tính độc lập điều kiện kiểm chứng của cả sáu rule.
+Mỗi issue agent chỉ nhận các fact cần cho đúng một nghiệp vụ và trả về `matches`.
+`PolicyCoordinatorAgent` gọi các agent theo priority, dừng ở agent đầu tiên khớp
+và đối chiếu với `classify_primary_issue()` trước khi tính khoản hoàn tiền.
 
-| Thành phần | Mô tả |
-| --- | --- |
-| Input | Một `EC_xxx.json` chứa `claimed_order_id` |
-| Output | Một JSON đúng output schema của README |
-| Phụ thuộc | 9 CSV Olist trong `data/` |
-| Bên dùng output | `output/` để nén nộp; `logging/` để audit |
-| Điều kiện lỗi | Order không tồn tại, schema thiếu trường, output vượt giới hạn hoặc evidence sai prefix |
+Sau primary issue, hàm `calculate_secondary_issues()` thêm các issue liên quan
+theo thứ tự: multi-item, multi-seller, split payment, repeat customer và multiple
+categories. Hàm `calculate_resolution_actions()` tạo action chính trước, sau đó
+mới thêm các action bổ sung theo policy.
 
-## 5. Quyết định kỹ thuật quan trọng
+## 6. Kiểm chứng đầu ra
 
-- **Bối cảnh:** cần phân tích có thể kiểm chứng cho tất cả case.
-- **Phương án cân nhắc:** dùng LLM để suy luận tự do; hoặc dùng agent chuyên
-  biệt áp dụng quy tắc deterministic trên CSV.
-- **Phương án chọn:** agent deterministic theo `EC_POLICY_V2`.
-- **Lý do:** công thức hoàn tiền, timestamp, evidence ID và thứ tự ưu tiên đều
-  đã được xác định trong đề; cách này tránh tạo ra sự kiện không có trong dữ liệu.
-- **Bằng chứng:** mỗi output có evidence ID, đồng thời trace ghi nhận chuỗi
-  handoff và verifier hoàn tất trước khi file được ghi.
+`VerifierAgent.verify()` kiểm tra schema, giới hạn mảng, confidence, evidence ID
+và quan hệ giữa refund với case status.
 
-## 6. Lỗi hoặc blocker đã xử lý
+`VerifierAgent.verify_against_source_data()` độc lập tính lại từ CSV:
 
-- **Triệu chứng:** đọc bảng `product_category_name_translation.csv` gây lỗi
-  không tìm thấy cột `product_category_name`.
-- **Nguyên nhân gốc:** file có UTF-8 BOM ở header.
-- **Cách xử lý:** CSV loader sử dụng encoding `utf-8-sig`, tương thích cả UTF-8
-  thường lẫn UTF-8 có BOM.
-- **Xác minh:** chạy `python -m src.main` thành công và sinh đủ 50 output.
+- Primary issue và secondary issues.
+- Order, item, seller và payment ID.
+- Customer history qua `customer_unique_id`.
+- Product ID và category gốc, không dịch dữ liệu.
+- Delivery variance và seller handoff variance.
+- Tất cả tham số đối soát thanh toán.
+- Root cause, responsible party và evidence.
+- Recommended refund và resolution actions.
 
-## 7. Luồng end-to-end
+Nếu bất kỳ trường nào khác dữ liệu nguồn hoặc sai thứ tự policy, verifier ném
+`VerificationError` và case không được ghi ra `output/`.
 
-1. Coordinator đọc case và xác nhận `claimed_order_id` trong `orders`.
-2. Customer, order/product, payment và delivery agent tra cứu các bảng liên
-   quan, sau đó handoff facts có cấu trúc.
-3. PolicyAgent xác định primary issue theo ưu tiên, rồi thêm secondary issues,
-   bên chịu trách nhiệm, refund và actions.
-4. VerifierAgent chặn output không hợp lệ; kết quả hợp lệ được ghi vào
-   `output/`, trace mới nhất thay thế trace cũ và metadata ghi runtime.
+## 7. Handoff và trace
 
-## 8. Cam kết
+Luồng xử lý một case:
 
-- [ ] Tôi đã thay phần thông tin cá nhân ở mục 1 trước khi nộp.
-- [x] Tôi có thể giải thích luồng dữ liệu Olist từ input đến output.
-- [x] Các kết quả chạy đã được xác minh bằng lệnh trong mục 3.
-- [x] Repository không đưa API key hoặc secret vào source/log.
+```text
+Coordinator
+  → CustomerAgent
+  → OrderProductAgent
+  → PaymentAgent
+  → DeliveryAgent
+  → CanceledOrderIssueAgent
+  → UnavailableOrderIssueAgent (nếu rule trước không khớp)
+  → LateDeliverySellerIssueAgent (nếu chưa khớp)
+  → LateDeliveryLogisticsIssueAgent (nếu chưa khớp)
+  → ValidSplitPaymentIssueAgent (nếu chưa khớp)
+  → UnsupportedLateClaimIssueAgent (nếu chưa khớp)
+  → PolicyCoordinatorAgent
+  → VerifierAgent
+  → output/EC_xxx.json
+```
 
-**Họ và tên:** [Họ và tên]
-**Ngày xác nhận:** [YYYY-MM-DD]
+Mỗi specialist gửi evidence có cấu trúc cho agent tiếp theo và gọi OpenRouter để
+review domain của mình. Lượt chạy mới ghi đè `logging/trace.jsonl`, không append
+trace cũ. `logging/metadata.json` ghi model, kích thước 8B, framework, runtime và
+số case đã xử lý.
+
+## 8. Kết quả kiểm thử
+
+- Xử lý đủ 50 input từ `EC_001.json` đến `EC_050.json`.
+- Kiểm tra source với toàn bộ output bằng verifier dữ liệu nguồn.
+- Thử cố tình sửa `difference_brl` của một case và verifier đã từ chối.
+- Model được khai báo trực tiếp trong source và có guard `8B <= 10B`.
+- API key chỉ nằm trong `.env`, không được ghi vào source, trace hoặc output ZIP.
+- File nộp chỉ chứa thư mục `output/` với đúng 50 JSON.
+
+## 9. Công việc cá nhân đã thực hiện
+
+- Xây dựng repository loader và các index phục vụ join dữ liệu Olist.
+- Thiết kế các specialist agent và cấu trúc handoff.
+- Tích hợp OpenRouter Chat Completions API với Llama 3.1 8B.
+- Viết các hàm tính toán giao vận, thanh toán và phân loại policy.
+- Viết verifier đối chiếu trực tiếp JSON đầu ra với CSV.
+- Xử lý UTF-8 BOM bằng `utf-8-sig` và giữ nguyên category tiếng Bồ Đào Nha.
+- Xử lý đúng order không có item và các trường không đủ dữ liệu để tính.
+- Tạo trace, metadata, 50 output JSON và file ZIP nộp bài.
+
+## 10. Cam kết
+
+- [x] Tôi có thể giải thích luồng dữ liệu từ input đến output.
+- [x] Kết luận được kiểm chứng từ CSV, không tin trực tiếp lời người dùng.
+- [x] Các phép tính và thứ tự nghiệp vụ được thể hiện bằng hàm trong source.
+- [x] Model sử dụng có 8B tham số, không vượt giới hạn 10B.
+- [x] Không đưa API key hoặc secret vào source, log hay output ZIP.
+
+**Họ và tên:** Đinh Hoàng Quân
+
+**MSSV:** 2A202602034
+
+**Ngày xác nhận:** 05/08/2026
