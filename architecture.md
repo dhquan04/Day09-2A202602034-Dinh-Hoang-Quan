@@ -45,6 +45,12 @@ flowchart LR
 4. The VerifierAgent rejects an invalid result before it can be written. A
    successful run overwrites `trace.jsonl` with exactly the newest run.
 
+Confidence is calculated from issue-specific evidence completeness and the
+agreement of the relevant API agents. A perfect evidence set is capped at
+`0.99`; missing or unverified relevant evidence lowers the score. Evidence that
+does not apply to an issue (for example delivery timestamps on an unavailable
+order) does not reduce confidence.
+
 ## Running
 
 Activate the virtual environment and run:

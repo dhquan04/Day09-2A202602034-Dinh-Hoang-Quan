@@ -52,6 +52,8 @@ domain chỉ trả về dữ kiện của domain mình. `PolicyAgent` áp dụng
 `EC_POLICY_V2`; mỗi specialist đồng thời gọi OpenRouter bằng Llama 3.1 8B và
 handoff JSON review sang PolicyAgent. `VerifierAgent` kiểm tra giới hạn mảng,
 confidence, prefix evidence và sự nhất quán giữa refund với case status trước khi ghi file.
+Confidence không gán cứng; hệ thống tính từ độ đầy đủ của evidence cần thiết cho
+từng issue và kết quả xác nhận của các API agent liên quan.
 
 | Thành phần | Mô tả |
 | --- | --- |

@@ -70,7 +70,7 @@ class PaymentAgent:
     def investigate(self, order_id: str, items: list[dict[str, str]], repo: OlistRepository, api: OpenRouterClient) -> dict:
         payments = repo.payments_by_order.get(order_id, [])
         if not items:
-            result = {"payments": payments, "item_total_brl": None, "freight_total_brl": None,
+            result = {"payments": payments, "item_total_brl": 0.0, "freight_total_brl": 0.0,
                     "expected_total_brl": None, "payment_total_brl": round(sum(float(p["payment_value"]) for p in payments), 2),
                     "difference_brl": None, "reconciled": None}
             result["api_handoff"] = api.generate_json("PaymentAgent", "Review payment evidence and null handling. Return JSON with keys verified (boolean) and summary (string).", result)
